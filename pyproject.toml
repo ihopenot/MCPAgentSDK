@@ -14,9 +14,16 @@ dependencies = [
 [tool.setuptools.packages.find]
 include = ["mcp_agent_sdk*"]
 
+[tool.pytest.ini_options]
+markers = [
+    "e2e: marks tests as end-to-end (require codebuddy CLI in PATH)",
+]
+asyncio_mode = "auto"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-aiohttp>=1.0",
+    "pytest-timeout>=2.0",
 ]

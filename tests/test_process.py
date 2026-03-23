@@ -78,7 +78,7 @@ def test_build_cli_args_mcp_config_is_valid_json():
     mcp_idx = args.index("--mcp-config")
     mcp_val = args[mcp_idx + 1]
     parsed = json.loads(mcp_val)
-    assert parsed["mcpServers"]["agent-controller"]["type"] == "streamable-http"
+    assert parsed["mcpServers"]["agent-controller"]["type"] == "http"
 
 
 def test_build_cli_args_setting_sources_none():

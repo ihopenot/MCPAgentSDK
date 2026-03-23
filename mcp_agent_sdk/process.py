@@ -43,7 +43,7 @@ def build_cli_args(
     mcp_config = {
         "mcpServers": {
             "agent-controller": {
-                "type": "streamable-http",
+                "type": "http",
                 "url": mcp_server_url,
             }
         }
