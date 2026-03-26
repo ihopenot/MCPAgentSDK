@@ -19,6 +19,7 @@ class AgentRunConfig:
     cwd: str | None = None
     allowed_tools: list[str] | None = None
     extra_args: dict[str, str | None] = field(default_factory=dict)
+    timeout: float | None = None
 
 
 @dataclass

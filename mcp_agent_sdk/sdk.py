@@ -9,7 +9,7 @@ from typing import Any
 
 from aiohttp import web
 
-from mcp_agent_sdk.mcp_server import create_mcp_app
+from mcp_agent_sdk.mcp_server import _safe_call, create_mcp_app
 from mcp_agent_sdk.message_parser import parse_line
 from mcp_agent_sdk.process import build_cli_args, find_codebuddy_cli, start_cli_process
 from mcp_agent_sdk.prompt_template import build_prompt
@@ -120,9 +120,55 @@ class MCPAgentSDK:
             cwd=config.cwd,
         )
 
+        # Schedule timeout if configured
+        timeout_task: asyncio.Task | None = None
+        if config.timeout is not None and config.timeout > 0:
+            async def _timeout_trigger() -> None:
+                await asyncio.sleep(config.timeout)
+                if ctx.status == "running":
+                    ctx.status = "blocked"
+                    ctx.result_message = (
+                        f"Agent run timed out after {config.timeout}s"
+                    )
+                    await _safe_call(ctx.on_block, ctx.result_message)
+
+            timeout_task = asyncio.create_task(_timeout_trigger())
+
         session_id = ""
+        status_changed = False
         try:
-            async for raw_line in process.stdout:  # type: ignore[union-attr]
+            stdout = process.stdout  # type: ignore[union-attr]
+            while True:
+                # Race: read next line vs timeout-triggered status change
+                read_task = asyncio.ensure_future(stdout.readline())
+                try:
+                    # Poll every 0.5s so we notice status changes from timeout
+                    while not read_task.done():
+                        if ctx.status != "running":
+                            read_task.cancel()
+                            break
+                        await asyncio.sleep(0.1)
+                    if ctx.status != "running":
+                        process.terminate()
+                        yield Message(
+                            type="agent_result",
+                            content={
+                                "status": ctx.status,
+                                "message": ctx.result_message,
+                                "session_id": session_id,
+                                "agent_run_id": agent_run_id,
+                            },
+                        )
+                        status_changed = True
+                        break
+                    raw_line = read_task.result()
+                except asyncio.CancelledError:
+                    break
+
+                if not raw_line:
+                    # EOF — process closed stdout
+                    break
+
                 line = raw_line.decode("utf-8", errors="replace")
                 msg = parse_line(line)
                 if msg is None:
@@ -151,8 +197,10 @@ class MCPAgentSDK:
                             "agent_run_id": agent_run_id,
                         },
                     )
+                    status_changed = True
                     break
-            else:
+
+            if not status_changed:
                 # Process ended without Complete/Block being called
                 await process.wait()
                 if ctx.status == "running":
@@ -166,8 +214,7 @@ class MCPAgentSDK:
                         },
                     )
                 else:
-                    # Status changed but process ended naturally (e.g. after
-                    # Complete was called, CLI finished on its own)
+                    # Status changed but process ended naturally
                     yield Message(
                         type="agent_result",
                         content={
@@ -179,6 +226,8 @@ class MCPAgentSDK:
                     )
         finally:
             # Clean up
+            if timeout_task is not None:
+                timeout_task.cancel()
             self._registry.pop(agent_run_id, None)
             if process.returncode is None:
                 try:
