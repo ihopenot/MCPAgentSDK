@@ -1,5 +1,7 @@
 # MCP Agent SDK
 
+English | [中文](README_zh.md)
+
 Python SDK for programmatically executing AI agent tasks with **automatic validation** and **human-in-the-loop** control.
 
 ## Features
