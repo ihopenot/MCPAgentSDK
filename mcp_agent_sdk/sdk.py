@@ -5,15 +5,27 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 from aiohttp import web
 
+from mcp_agent_sdk.errors import AgentProcessError, AgentStartupError
 from mcp_agent_sdk.mcp_server import _safe_call, create_mcp_app
 from mcp_agent_sdk.message_parser import parse_line
-from mcp_agent_sdk.process import build_cli_args, find_codebuddy_cli, start_cli_process
+from mcp_agent_sdk.process import (
+    StderrReader,
+    build_cli_args,
+    find_codebuddy_cli,
+    start_cli_process,
+)
 from mcp_agent_sdk.prompt_template import build_prompt
-from mcp_agent_sdk.types import AgentRunConfig, Message, RunContext
+from mcp_agent_sdk.types import (
+    AgentResult,
+    AgentRunConfig,
+    ResultMessage,
+    RunContext,
+    StreamEvent,
+    SystemMessage,
+)
 
 
 class MCPAgentSDK:
@@ -74,8 +86,8 @@ class MCPAgentSDK:
         self._site = None
         self._port = 0
 
-    async def run_agent(self, config: AgentRunConfig) -> AsyncIterator[Message]:
-        """Run an agent and yield messages as they arrive.
+    async def run_agent(self, config: AgentRunConfig) -> AsyncIterator[StreamEvent]:
+        """Run an agent and yield structured events as they arrive.
 
         Launches a codebuddy subprocess with MCP config pointing to the
         internal server. The agent's Complete/Block tool calls are routed
@@ -85,10 +97,12 @@ class MCPAgentSDK:
             config: Configuration for this agent run.
 
         Yields:
-            Message objects from the agent's stdout stream.
-            The final message has type="agent_result" with the AgentResult data.
-            Raw CLI "result" messages are consumed internally (for session_id
-            extraction) but not yielded, to avoid ambiguity.
+            StreamEvent subclasses: AssistantMessage, SystemMessage, AgentResult.
+            ResultMessage is consumed internally for session_id extraction.
+
+        Raises:
+            AgentStartupError: If the process crashes before producing output.
+            AgentProcessError: If the process exits without calling Complete/Block.
         """
         if self._port == 0:
             raise RuntimeError("SDK not initialized. Call await sdk.init() first.")
@@ -134,15 +148,30 @@ class MCPAgentSDK:
 
             timeout_task = asyncio.create_task(_timeout_trigger())
 
+        # Start stderr reader
+        stderr_reader = StderrReader(process.stderr)
+        stderr_task = stderr_reader.start()
+
         session_id = ""
         status_changed = False
+        stdout_lines_seen = False
+        stdout_tail: list[str] = []
+
+        def _make_agent_result() -> AgentResult:
+            return AgentResult(
+                status=ctx.status,
+                message=ctx.result_message,
+                session_id=session_id,
+                agent_run_id=agent_run_id,
+            )
+
         try:
             stdout = process.stdout  # type: ignore[union-attr]
             while True:
                 # Race: read next line vs timeout-triggered status change
                 read_task = asyncio.ensure_future(stdout.readline())
                 try:
-                    # Poll every 0.5s so we notice status changes from timeout
+                    # Poll every 0.1s so we notice status changes from timeout
                     while not read_task.done():
                         if ctx.status != "running":
                             read_task.cancel()
@@ -150,15 +179,7 @@ class MCPAgentSDK:
                         await asyncio.sleep(0.1)
                     if ctx.status != "running":
                         process.terminate()
-                        yield Message(
-                            type="agent_result",
-                            content={
-                                "status": ctx.status,
-                                "message": ctx.result_message,
-                                "session_id": session_id,
-                                "agent_run_id": agent_run_id,
-                            },
-                        )
+                        yield _make_agent_result()
                         status_changed = True
                         break
                     raw_line = read_task.result()
@@ -170,64 +191,69 @@ class MCPAgentSDK:
                     break
 
                 line = raw_line.decode("utf-8", errors="replace")
-                msg = parse_line(line)
-                if msg is None:
+                stdout_lines_seen = True
+
+                # Keep last 20 lines for diagnostics
+                stdout_tail.append(line.rstrip())
+                if len(stdout_tail) > 20:
+                    stdout_tail.pop(0)
+
+                event = parse_line(line)
+                if event is None:
                     continue
 
                 # Extract session_id from result/system messages but don't
-                # yield raw CLI result messages to avoid duplicate results.
-                if msg.type == "result":
-                    session_id = msg.content.get("session_id", session_id)
-                    # Don't yield — SDK will synthesize its own agent_result
-                elif msg.type == "system":
-                    session_id = msg.content.get("session_id", session_id)
-                    yield msg
+                # yield ResultMessage — SDK synthesizes its own AgentResult.
+                if isinstance(event, ResultMessage):
+                    session_id = event.session_id or session_id
+                elif isinstance(event, SystemMessage):
+                    session_id = event.data.get("session_id", session_id)
+                    yield event
                 else:
-                    yield msg
+                    yield event
 
                 # Check if MCP handler changed the status
                 if ctx.status != "running":
                     process.terminate()
-                    yield Message(
-                        type="agent_result",
-                        content={
-                            "status": ctx.status,
-                            "message": ctx.result_message,
-                            "session_id": session_id,
-                            "agent_run_id": agent_run_id,
-                        },
-                    )
+                    yield _make_agent_result()
                     status_changed = True
                     break
 
             if not status_changed:
                 # Process ended without Complete/Block being called
                 await process.wait()
+                # Wait for stderr reader to finish
+                try:
+                    await asyncio.wait_for(stderr_task, timeout=2)
+                except asyncio.TimeoutError:
+                    stderr_task.cancel()
+                stderr_output = stderr_reader.get_output()
+                exit_code = process.returncode
+
                 if ctx.status == "running":
-                    yield Message(
-                        type="agent_result",
-                        content={
-                            "status": "error",
-                            "message": "Agent process exited without calling Complete or Block",
-                            "session_id": session_id,
-                            "agent_run_id": agent_run_id,
-                        },
-                    )
+                    # Process exited abnormally
+                    if not stdout_lines_seen:
+                        raise AgentStartupError(
+                            "Agent process crashed during startup",
+                            stderr=stderr_output,
+                            exit_code=exit_code,
+                        )
+                    else:
+                        raise AgentProcessError(
+                            "Agent process exited without calling Complete or Block",
+                            stderr=stderr_output,
+                            stdout_tail="\n".join(stdout_tail),
+                            exit_code=exit_code,
+                        )
                 else:
                     # Status changed but process ended naturally
-                    yield Message(
-                        type="agent_result",
-                        content={
-                            "status": ctx.status,
-                            "message": ctx.result_message,
-                            "session_id": session_id,
-                            "agent_run_id": agent_run_id,
-                        },
-                    )
+                    yield _make_agent_result()
         finally:
             # Clean up
             if timeout_task is not None:
                 timeout_task.cancel()
+            if not stderr_task.done():
+                stderr_task.cancel()
             self._registry.pop(agent_run_id, None)
             if process.returncode is None:
                 try:

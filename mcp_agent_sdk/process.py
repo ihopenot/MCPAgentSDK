@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from collections import deque
 from typing import Any
 
+from mcp_agent_sdk.errors import CLINotFoundError
 from mcp_agent_sdk.types import AgentRunConfig
 
 # Buffer limit for subprocess streams (100 MB)
@@ -71,7 +73,7 @@ def find_codebuddy_cli() -> str:
     """
     path = shutil.which("codebuddy")
     if path is None:
-        raise FileNotFoundError(
+        raise CLINotFoundError(
             "codebuddy CLI not found in PATH. "
             "Please ensure codebuddy is installed and available."
         )
@@ -111,3 +113,33 @@ async def start_cli_process(
         process.stdin.close()
 
     return process
+
+
+class StderrReader:
+    """Asynchronously reads stderr lines into a bounded deque buffer."""
+
+    def __init__(self, stderr_stream: Any, maxlen: int = 100) -> None:
+        self._stream = stderr_stream
+        self._lines: deque[str] = deque(maxlen=maxlen)
+
+    def start(self) -> asyncio.Task[None]:
+        """Start the background reader task. Returns the task."""
+        return asyncio.create_task(self._read_loop())
+
+    async def _read_loop(self) -> None:
+        """Read lines from stderr until EOF."""
+        while True:
+            raw = await self._stream.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="replace").rstrip("\n").rstrip("\r")
+            if line:
+                self._lines.append(line)
+
+    def get_lines(self) -> list[str]:
+        """Return buffered stderr lines as a list."""
+        return list(self._lines)
+
+    def get_output(self) -> str:
+        """Return buffered stderr as a single string joined by newlines."""
+        return "\n".join(self._lines)

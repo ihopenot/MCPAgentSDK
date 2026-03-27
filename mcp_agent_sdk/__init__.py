@@ -1,13 +1,48 @@
 """MCP Agent SDK - Agent execution with auto-validation via MCP tools."""
 
-from mcp_agent_sdk.types import AgentResult, AgentRunConfig, Message, RunContext
+from mcp_agent_sdk.errors import (
+    AgentExecutionError,
+    AgentProcessError,
+    AgentStartupError,
+    CLINotFoundError,
+    MCPAgentSDKError,
+)
+from mcp_agent_sdk.types import (
+    AgentResult,
+    AgentRunConfig,
+    AssistantMessage,
+    ContentBlock,
+    ResultMessage,
+    RunContext,
+    StreamEvent,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 
 __all__ = [
+    # Errors
+    "AgentExecutionError",
+    "AgentProcessError",
+    "AgentStartupError",
+    "CLINotFoundError",
+    "MCPAgentSDKError",
+    # Types
     "AgentResult",
     "AgentRunConfig",
+    "AssistantMessage",
+    "ContentBlock",
     "MCPAgentSDK",
-    "Message",
+    "ResultMessage",
     "RunContext",
+    "StreamEvent",
+    "SystemMessage",
+    "TextBlock",
+    "ThinkingBlock",
+    "ToolResultBlock",
+    "ToolUseBlock",
 ]
 
 

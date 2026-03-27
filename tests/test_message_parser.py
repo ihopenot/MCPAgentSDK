@@ -1,8 +1,16 @@
-"""Tests for message parser: parse stdout JSON lines into Message objects."""
+"""Tests for message parser: parse stdout JSON lines into structured types."""
 
 import pytest
 
 from mcp_agent_sdk.message_parser import parse_message, parse_line
+from mcp_agent_sdk.types import (
+    AssistantMessage,
+    ContentBlock,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ToolUseBlock,
+)
 
 
 def test_parse_assistant_message():
@@ -15,8 +23,10 @@ def test_parse_assistant_message():
         "model": "claude-sonnet-4-20250514",
     }
     msg = parse_message(data)
-    assert msg.type == "assistant"
-    assert msg.content["message"]["content"][0]["text"] == "Hello world"
+    assert isinstance(msg, AssistantMessage)
+    assert len(msg.content) == 1
+    assert isinstance(msg.content[0], TextBlock)
+    assert msg.content[0].text == "Hello world"
 
 
 def test_parse_tool_use_message():
@@ -30,9 +40,10 @@ def test_parse_tool_use_message():
         },
     }
     msg = parse_message(data)
-    assert msg.type == "assistant"
-    tool_block = msg.content["message"]["content"][0]
-    assert tool_block["name"] == "Write"
+    assert isinstance(msg, AssistantMessage)
+    block = msg.content[0]
+    assert isinstance(block, ToolUseBlock)
+    assert block.name == "Write"
 
 
 def test_parse_result_message():
@@ -45,9 +56,9 @@ def test_parse_result_message():
         "duration_ms": 12000,
     }
     msg = parse_message(data)
-    assert msg.type == "result"
-    assert msg.content["session_id"] == "sess-abc"
-    assert msg.content["is_error"] is False
+    assert isinstance(msg, ResultMessage)
+    assert msg.session_id == "sess-abc"
+    assert msg.is_error is False
 
 
 def test_parse_system_message():
@@ -58,26 +69,29 @@ def test_parse_system_message():
         "data": {"session_id": "sess-xyz"},
     }
     msg = parse_message(data)
-    assert msg.type == "system"
+    assert isinstance(msg, SystemMessage)
+    assert msg.subtype == "init"
 
 
 def test_parse_error_message():
-    """Parse an error message."""
+    """Parse an error message — becomes SystemMessage."""
     data = {
         "type": "error",
         "error": "something went wrong",
     }
     msg = parse_message(data)
-    assert msg.type == "error"
-    assert msg.content["error"] == "something went wrong"
+    assert isinstance(msg, SystemMessage)
+    assert msg.subtype == "error"
+    assert msg.data["error"] == "something went wrong"
 
 
 def test_parse_unknown_type():
-    """Unknown message type should still produce a Message."""
+    """Unknown message type should produce a SystemMessage."""
     data = {"type": "unknown_type", "foo": "bar"}
     msg = parse_message(data)
-    assert msg.type == "unknown_type"
-    assert msg.content["foo"] == "bar"
+    assert isinstance(msg, SystemMessage)
+    assert msg.subtype == "unknown_type"
+    assert msg.data["foo"] == "bar"
 
 
 def test_parse_line_valid_json():
@@ -85,7 +99,7 @@ def test_parse_line_valid_json():
     line = '{"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}}'
     msg = parse_line(line)
     assert msg is not None
-    assert msg.type == "assistant"
+    assert isinstance(msg, AssistantMessage)
 
 
 def test_parse_line_invalid_json():
