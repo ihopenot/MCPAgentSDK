@@ -32,7 +32,7 @@ def print_event(event: AssistantMessage | SystemMessage) -> None:
             elif isinstance(block, ThinkingBlock):
                 print(f"  🧠 (thinking) {block.thinking[:200]}")
             elif isinstance(block, ToolUseBlock):
-                print(f"  🔧 Tool: {block.name}")
+                print(f"  🔧 Tool: {block.name} {block.input}")
             elif isinstance(block, ToolResultBlock):
                 prefix = "❌" if block.is_error else "✅"
                 print(f"  {prefix} Result: {block.output[:200]}")
@@ -51,7 +51,7 @@ async def basic_run() -> None:
     await sdk.init()
 
     config = AgentRunConfig(
-        prompt="Create a file called hello.txt containing 'Hello, World!'",
+        prompt="创建一个Team，a，b，c三个成员，每个成员创建自己名称.txt的文件，一定要创建team来完成，不要自己创建",
     )
 
     try:
