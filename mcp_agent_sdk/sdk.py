@@ -255,9 +255,15 @@ class MCPAgentSDK:
             if not stderr_task.done():
                 stderr_task.cancel()
             self._registry.pop(agent_run_id, None)
-            if process.returncode is None:
-                try:
+            # Ensure process is fully terminated and waited on (prevents
+            # "unclosed transport" warnings on Windows).
+            try:
+                if process.returncode is None:
                     process.terminate()
-                    await asyncio.wait_for(process.wait(), timeout=5)
-                except (asyncio.TimeoutError, ProcessLookupError):
-                    process.kill()
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                process.kill()
+                try:
+                    await process.wait()
+                except ProcessLookupError:
+                    pass
