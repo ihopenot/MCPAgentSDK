@@ -13,10 +13,33 @@ from mcp_agent_sdk import (
     AgentRunConfig,
     AgentStartupError,
     AssistantMessage,
+    ContentBlock,
     MCPAgentSDK,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
 )
+
+
+def print_event(event: AssistantMessage | SystemMessage) -> None:
+    """Pretty-print a stream event."""
+    if isinstance(event, AssistantMessage):
+        for block in event.content:
+            if isinstance(block, TextBlock):
+                print(f"  💬 {block.text}")
+            elif isinstance(block, ThinkingBlock):
+                print(f"  🧠 (thinking) {block.thinking[:200]}")
+            elif isinstance(block, ToolUseBlock):
+                print(f"  🔧 Tool: {block.name}")
+            elif isinstance(block, ToolResultBlock):
+                prefix = "❌" if block.is_error else "✅"
+                print(f"  {prefix} Result: {block.output[:200]}")
+    elif isinstance(event, SystemMessage):
+        # Only print meaningful system messages, skip noisy ones
+        if event.subtype in ("init",):
+            print(f"  ⚙️  Session started (model={event.data.get('model', '?')})")
 
 
 # ---------------------------------------------------------------------------
@@ -35,20 +58,12 @@ async def basic_run() -> None:
         async for event in sdk.run_agent(config):
             if isinstance(event, AgentResult):
                 print(f"\n✅ Done — status: {event.status}, message: {event.message}")
-            elif isinstance(event, AssistantMessage):
-                for block in event.content:
-                    if isinstance(block, TextBlock):
-                        print(f"[assistant] {block.text}")
-            elif isinstance(event, SystemMessage):
-                print(f"[system:{event.subtype}] {event.data}")
+            else:
+                print_event(event)
     except AgentStartupError as e:
-        print(f"❌ Startup failed: {e} (exit_code={e.exit_code})")
-        if e.stderr:
-            print(f"   stderr: {e.stderr}")
+        print(f"❌ Startup failed: {e}")
     except AgentProcessError as e:
-        print(f"❌ Process crashed: {e} (exit_code={e.exit_code})")
-        if e.stderr:
-            print(f"   stderr: {e.stderr}")
+        print(f"❌ Process crashed: {e}")
 
     await sdk.shutdown()
 
@@ -78,10 +93,8 @@ async def validated_run() -> None:
             if isinstance(event, AgentResult):
                 print(f"\n✅ Done — status: {event.status}")
                 print(f"   message: {event.message}")
-            elif isinstance(event, AssistantMessage):
-                for block in event.content:
-                    if isinstance(block, TextBlock):
-                        print(f"[assistant] {block.text}")
+            else:
+                print_event(event)
     except (AgentStartupError, AgentProcessError) as e:
         print(f"❌ Error: {e}")
 
@@ -114,6 +127,8 @@ async def callback_run() -> None:
         async for event in sdk.run_agent(config):
             if isinstance(event, AgentResult):
                 print(f"\nFinal: status={event.status}, message={event.message}")
+            else:
+                print_event(event)
     except (AgentStartupError, AgentProcessError) as e:
         print(f"❌ Error: {e}")
 
@@ -133,9 +148,13 @@ async def concurrent_runs() -> None:
         try:
             async for event in sdk.run_agent(config):
                 if isinstance(event, AgentResult):
-                    print(f"[{label}] result: {event.status}")
+                    print(f"[{label}] ✅ {event.status}: {event.message}")
+                elif isinstance(event, AssistantMessage):
+                    for block in event.content:
+                        if isinstance(block, ToolUseBlock):
+                            print(f"[{label}] 🔧 {block.name}")
         except (AgentStartupError, AgentProcessError) as e:
-            print(f"[{label}] error: {e}")
+            print(f"[{label}] ❌ {e}")
 
     await asyncio.gather(
         _run("agent-1", "Create a file named a.txt with content 'A'"),
@@ -165,7 +184,9 @@ async def advanced_run() -> None:
     try:
         async for event in sdk.run_agent(config):
             if isinstance(event, AgentResult):
-                print(f"\nResult: status={event.status}, message={event.message}")
+                print(f"\n✅ Result: status={event.status}, message={event.message}")
+            else:
+                print_event(event)
     except (AgentStartupError, AgentProcessError) as e:
         print(f"❌ Error: {e}")
 
