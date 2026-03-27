@@ -23,6 +23,14 @@ class AgentStartupError(MCPAgentSDKError):
         self.stderr = stderr
         self.exit_code = exit_code
 
+    def __str__(self) -> str:
+        parts = [super().__str__()]
+        if self.exit_code is not None:
+            parts.append(f"exit_code={self.exit_code}")
+        if self.stderr:
+            parts.append(f"stderr:\n{self.stderr}")
+        return "\n".join(parts)
+
 
 class AgentProcessError(MCPAgentSDKError):
     """Raised when the agent process exits without calling Complete or Block."""
@@ -39,6 +47,16 @@ class AgentProcessError(MCPAgentSDKError):
         self.stdout_tail = stdout_tail
         self.exit_code = exit_code
 
+    def __str__(self) -> str:
+        parts = [super().__str__()]
+        if self.exit_code is not None:
+            parts.append(f"exit_code={self.exit_code}")
+        if self.stderr:
+            parts.append(f"stderr:\n{self.stderr}")
+        if self.stdout_tail:
+            parts.append(f"stdout_tail:\n{self.stdout_tail}")
+        return "\n".join(parts)
+
 
 class AgentExecutionError(MCPAgentSDKError):
     """Raised on logical execution errors (authentication failure, API errors, etc.)."""
@@ -48,3 +66,10 @@ class AgentExecutionError(MCPAgentSDKError):
         super().__init__(message)
         self.errors = errors
         self.subtype = subtype
+
+    def __str__(self) -> str:
+        parts = [super().__str__()]
+        parts.append(f"subtype={self.subtype}")
+        if len(self.errors) > 1:
+            parts.append(f"all errors: {self.errors}")
+        return "\n".join(parts)

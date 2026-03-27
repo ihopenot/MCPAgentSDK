@@ -42,12 +42,17 @@ class TestAgentStartupError:
             stderr="Error: config not found\nFatal crash",
             exit_code=1,
         )
-        assert str(err) == "startup failed"
+        s = str(err)
+        assert "startup failed" in s
+        assert "exit_code=1" in s
+        assert "Error: config not found" in s
+        assert "Fatal crash" in s
         assert err.stderr == "Error: config not found\nFatal crash"
         assert err.exit_code == 1
 
     def test_defaults(self):
         err = AgentStartupError("fail")
+        assert str(err) == "fail"  # no extra info when defaults
         assert err.stderr == ""
         assert err.exit_code is None
 
@@ -66,13 +71,18 @@ class TestAgentProcessError:
             stdout_tail="last line of output",
             exit_code=139,
         )
-        assert str(err) == "process died unexpectedly"
+        s = str(err)
+        assert "process died unexpectedly" in s
+        assert "exit_code=139" in s
+        assert "segfault at 0x0" in s
+        assert "last line of output" in s
         assert err.stderr == "segfault at 0x0"
         assert err.stdout_tail == "last line of output"
         assert err.exit_code == 139
 
     def test_defaults(self):
         err = AgentProcessError("died")
+        assert str(err) == "died"  # no extra info when defaults
         assert err.stderr == ""
         assert err.stdout_tail == ""
         assert err.exit_code is None
@@ -90,12 +100,17 @@ class TestAgentExecutionError:
             errors=["first error", "second error"],
             subtype="api_error",
         )
-        assert str(err) == "first error"
+        s = str(err)
+        assert "first error" in s
+        assert "subtype=api_error" in s
+        assert "second error" in s  # multi-error list shown
         assert err.errors == ["first error", "second error"]
         assert err.subtype == "api_error"
 
     def test_empty_errors_list(self):
         err = AgentExecutionError(errors=[], subtype="unknown")
-        assert str(err) == "Execution failed"
+        s = str(err)
+        assert "Execution failed" in s
+        assert "subtype=unknown" in s
         assert err.errors == []
         assert err.subtype == "unknown"
