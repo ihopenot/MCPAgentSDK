@@ -18,7 +18,7 @@ def test_build_cli_args_minimal():
     )
     assert "--input-format=stream-json" in args
     assert "--output-format=stream-json" in args
-    assert "--print" in args
+    assert "--print" not in args
     assert "--permission-mode" in args
     assert "bypassPermissions" in args
 
