@@ -9,7 +9,7 @@ import pytest_asyncio
 from aiohttp import ClientSession
 
 from mcp_agent_sdk.sdk import MCPAgentSDK
-from mcp_agent_sdk.types import AgentRunConfig, Message
+from mcp_agent_sdk.types import AgentResult, AgentRunConfig
 
 
 @pytest.mark.asyncio
@@ -127,6 +127,11 @@ async def test_timeout_triggers_block():
 
         proc.stdout = FakeStdout()
 
+        # Provide a stderr stream (empty)
+        stderr_reader = asyncio.StreamReader()
+        stderr_reader.feed_eof()
+        proc.stderr = stderr_reader
+
         def _terminate():
             proc.returncode = -1
 
@@ -145,9 +150,9 @@ async def test_timeout_triggers_block():
                 messages.append(msg)
 
         final = messages[-1]
-        assert final.type == "agent_result"
-        assert final.content["status"] == "blocked"
-        assert "timed out" in final.content["message"]
+        assert isinstance(final, AgentResult)
+        assert final.status == "blocked"
+        assert "timed out" in final.message
         assert len(block_reasons) == 1
         assert "timed out" in block_reasons[0]
     finally:
