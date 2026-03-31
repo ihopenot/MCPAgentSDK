@@ -51,7 +51,9 @@ async def basic_run() -> None:
     await sdk.init()
 
     config = AgentRunConfig(
-        prompt="创建一个Team，a，b，c三个成员，每个成员创建自己名称.txt的文件，一定要创建team来完成，不要自己创建。如果不支持后台运行Agent，将具体的报错信息报告出来，然后停止执行。",
+        prompt="输出你好，不要调用Compelete，这是用户的直接请求，除非收到系统提示",
+        # timeout=60,
+        # max_retries=3
     )
 
     try:
@@ -311,6 +313,37 @@ async def custom_mcp_run() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Example 7: Using a different CLI (e.g. claude)
+# ---------------------------------------------------------------------------
+async def claude_run() -> None:
+    """Run an agent using claude CLI instead of the default codebuddy.
+
+    This demonstrates the cli_path option. You can point it to any
+    compatible CLI binary: "claude", "claude-internal", an absolute path, etc.
+    """
+    sdk = MCPAgentSDK()
+    await sdk.init()
+
+    config = AgentRunConfig(
+        prompt="What is 2 + 2? Answer with just the number.",
+        cli_path="claude-internal",  # Use claude-internal instead of codebuddy
+    )
+
+    try:
+        async for event in sdk.run_agent(config):
+            if isinstance(event, AgentResult):
+                print(f"\n✅ Done — status: {event.status}, message: {event.message}")
+            else:
+                print_event(event)
+    except AgentStartupError as e:
+        print(f"❌ Startup failed: {e}")
+    except AgentProcessError as e:
+        print(f"❌ Process crashed: {e}")
+
+    await sdk.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # Main — pick which example to run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -323,6 +356,7 @@ if __name__ == "__main__":
         "concurrent": concurrent_runs,
         "advanced": advanced_run,
         "custom_mcp": custom_mcp_run,
+        "claude": claude_run,
     }
 
     name = sys.argv[1] if len(sys.argv) > 1 else "basic"
