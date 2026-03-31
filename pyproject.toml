@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-agent-sdk"
-version = "0.2.1"
+version = "0.3.0"
 description = "Agent SDK with MCP-based auto-validation and human-in-the-loop control"
 requires-python = ">=3.10"
 dependencies = [
