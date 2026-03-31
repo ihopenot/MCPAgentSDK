@@ -123,7 +123,7 @@ class MCPAgentSDK:
         full_prompt = build_prompt(agent_run_id, config.prompt)
 
         # Build CLI args
-        cli_path = find_codebuddy_cli()
+        cli_path = find_codebuddy_cli(config.cli_path)
         args = build_cli_args(config, full_prompt, self.mcp_server_url)
 
         # Start subprocess

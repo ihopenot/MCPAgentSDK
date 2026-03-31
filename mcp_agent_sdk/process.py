@@ -65,17 +65,21 @@ def build_cli_args(
     return args
 
 
-def find_codebuddy_cli() -> str:
-    """Find the codebuddy CLI binary in PATH.
+def find_codebuddy_cli(cli_path: str = "codebuddy") -> str:
+    """Find the CLI binary.
 
-    Returns the path to the binary.
-    Raises FileNotFoundError if not found.
+    Args:
+        cli_path: Name or absolute path of the CLI executable.
+                  Defaults to "codebuddy".
+
+    Returns the resolved path to the binary.
+    Raises CLINotFoundError if not found.
     """
-    path = shutil.which("codebuddy")
+    path = shutil.which(cli_path)
     if path is None:
         raise CLINotFoundError(
-            "codebuddy CLI not found in PATH. "
-            "Please ensure codebuddy is installed and available."
+            f"CLI '{cli_path}' not found in PATH. "
+            "Please ensure it is installed and available."
         )
     return path
 

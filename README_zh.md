@@ -110,6 +110,7 @@ class AgentRunConfig:
     cwd: str | None = None                                        # 工作目录
     allowed_tools: list[str] | None = None                        # 限制可用工具
     mcp_servers: dict[str, Any] = field(default_factory=dict)     # 额外的 MCP 服务器配置
+    cli_path: str = "codebuddy"                                   # CLI 可执行文件名或路径
     extra_args: dict[str, str | None] = field(default_factory=dict)  # 额外 CLI 参数
     timeout: float | None = None                                  # 超时时间（秒）
 ```

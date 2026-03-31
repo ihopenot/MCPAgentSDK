@@ -110,6 +110,7 @@ class AgentRunConfig:
     cwd: str | None = None                                        # Working directory
     allowed_tools: list[str] | None = None                        # Restrict agent tools
     mcp_servers: dict[str, Any] = field(default_factory=dict)     # Extra MCP servers to inject
+    cli_path: str = "codebuddy"                                   # CLI executable name or path
     extra_args: dict[str, str | None] = field(default_factory=dict)  # Extra CLI flags
     timeout: float | None = None                                  # Timeout in seconds
 ```

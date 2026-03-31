@@ -114,6 +114,7 @@ class AgentRunConfig:
     cwd: str | None = None
     allowed_tools: list[str] | None = None
     mcp_servers: dict[str, Any] = field(default_factory=dict)
+    cli_path: str = "codebuddy"
     extra_args: dict[str, str | None] = field(default_factory=dict)
     timeout: float | None = None
 
