@@ -52,8 +52,8 @@ def build_cli_args(
     mcp_config = {"mcpServers": mcp_servers}
     args.extend(["--mcp-config", json.dumps(mcp_config)])
 
-    # Isolation: don't load filesystem settings
-    args.extend(["--setting-sources", "none"])
+    # Note: --setting-sources is intentionally omitted (uses CLI defaults).
+    # Pass --setting-sources via extra_args if you need to override.
 
     # Extra args
     for flag, value in config.extra_args.items():
