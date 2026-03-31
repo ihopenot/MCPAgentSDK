@@ -51,7 +51,7 @@ async def basic_run() -> None:
     await sdk.init()
 
     config = AgentRunConfig(
-        prompt="创建一个Team，a，b，c三个成员，每个成员创建自己名称.txt的文件，一定要创建team来完成，不要自己创建",
+        prompt="创建一个Team，a，b，c三个成员，每个成员创建自己名称.txt的文件，一定要创建team来完成，不要自己创建。如果不支持后台运行Agent，将具体的报错信息报告出来，然后停止执行。",
     )
 
     try:
@@ -194,6 +194,52 @@ async def advanced_run() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Example 6: Custom MCP servers
+# ---------------------------------------------------------------------------
+async def custom_mcp_run() -> None:
+    """Run an agent with additional third-party MCP servers.
+
+    The agent will have access to tools from the custom MCP servers
+    in addition to the SDK's built-in Complete/Block tools.
+
+    This example injects a filesystem MCP server so the agent can
+    use its tools. Replace with any MCP server you need.
+    """
+    sdk = MCPAgentSDK()
+    await sdk.init()
+
+    config = AgentRunConfig(
+        prompt="Use the tools provided by the MCP servers to list files in the current directory, then summarize what you found.",
+        mcp_servers={
+            # Example: stdio-based MCP server
+            "filesystem": {
+                "command": "npx",
+                "args": ["-y", "@anthropic/mcp-filesystem"],
+            },
+            # Example: HTTP-based MCP server (uncomment if you have one running)
+            # "my-api": {
+            #     "type": "http",
+            #     "url": "http://localhost:8080/mcp",
+            # },
+        },
+        timeout=120.0,
+    )
+
+    try:
+        async for event in sdk.run_agent(config):
+            if isinstance(event, AgentResult):
+                print(f"\n✅ Done — status: {event.status}, message: {event.message}")
+            else:
+                print_event(event)
+    except AgentStartupError as e:
+        print(f"❌ Startup failed: {e}")
+    except AgentProcessError as e:
+        print(f"❌ Process crashed: {e}")
+
+    await sdk.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # Main — pick which example to run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -205,6 +251,7 @@ if __name__ == "__main__":
         "callback": callback_run,
         "concurrent": concurrent_runs,
         "advanced": advanced_run,
+        "custom_mcp": custom_mcp_run,
     }
 
     name = sys.argv[1] if len(sys.argv) > 1 else "basic"
