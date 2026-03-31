@@ -109,6 +109,7 @@ class AgentRunConfig:
     permission_mode: str = "bypassPermissions"                    # CLI permission mode
     cwd: str | None = None                                        # Working directory
     allowed_tools: list[str] | None = None                        # Restrict agent tools
+    mcp_servers: dict[str, Any] = field(default_factory=dict)     # Extra MCP servers to inject
     extra_args: dict[str, str | None] = field(default_factory=dict)  # Extra CLI flags
     timeout: float | None = None                                  # Timeout in seconds
 ```
@@ -279,6 +280,28 @@ async def run_all():
     await asyncio.gather(*[_run(c) for c in configs])
     await sdk.shutdown()
 ```
+
+### Custom MCP Servers
+
+Pass additional MCP servers to the agent subprocess via `mcp_servers`. They are merged with the built-in `agent-controller` server (which cannot be overridden).
+
+```python
+config = AgentRunConfig(
+    prompt="Query our internal knowledge base and summarize results",
+    mcp_servers={
+        "knowledge-base": {
+            "type": "http",
+            "url": "http://localhost:9090/mcp",
+        },
+        "search-engine": {
+            "command": "npx",
+            "args": ["-y", "@anthropic/search-mcp-server"],
+        },
+    },
+)
+```
+
+The agent will have access to tools from all configured MCP servers plus the SDK's internal `agent-controller` (Complete/Block tools).
 
 ## How It Works
 

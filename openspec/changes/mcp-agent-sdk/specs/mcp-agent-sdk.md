@@ -76,6 +76,24 @@ Agent 运行结束后返回结构化结果。
 - **WHEN** Agent 任务完成
 - **THEN** 结果包含 status="completed"、message、session_id、agent_run_id
 
-#### Scenario: 受阻结果
+#### Scenario: 结构化结果
 - **WHEN** Agent 任务受阻
 - **THEN** 结果包含 status="blocked"、message（含 reason）、session_id、agent_run_id，可通过 session_id 后续恢复会话
+
+---
+
+### Requirement: 自定义 MCP Server 透传
+
+`AgentRunConfig` 支持通过 `mcp_servers` 字段传入额外的 MCP Server 配置，这些配置会与内置的 `agent-controller` 合并后传递给 Agent 子进程。
+
+#### Scenario: 透传额外 MCP Server
+- **WHEN** 调用 `run_agent(config)` 且 config 包含 `mcp_servers={"my-server": {"type": "http", "url": "http://localhost:8080/mcp"}}`
+- **THEN** Agent 子进程的 `--mcp-config` 参数同时包含 `agent-controller` 和 `my-server` 两个 MCP Server
+
+#### Scenario: 内置 agent-controller 不可覆盖
+- **WHEN** `mcp_servers` 中包含 key 为 `"agent-controller"` 的条目
+- **THEN** 该条目被忽略，内置的 `agent-controller` 配置始终生效，确保 Complete/Block 工具可用
+
+#### Scenario: 默认不传额外 MCP Server
+- **WHEN** `mcp_servers` 未指定（默认空 dict）
+- **THEN** 行为与之前一致，仅包含内置 `agent-controller`

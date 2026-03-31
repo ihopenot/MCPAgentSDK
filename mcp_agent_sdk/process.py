@@ -40,15 +40,14 @@ def build_cli_args(
     if config.allowed_tools:
         args.extend(["--allowedTools"] + list(config.allowed_tools))
 
-    # MCP config - inject our server
-    mcp_config = {
-        "mcpServers": {
-            "agent-controller": {
-                "type": "http",
-                "url": mcp_server_url,
-            }
-        }
+    # MCP config - inject our server, merge with user-provided servers
+    mcp_servers = dict(config.mcp_servers)  # shallow copy
+    # Ensure built-in agent-controller is never overwritten
+    mcp_servers["agent-controller"] = {
+        "type": "http",
+        "url": mcp_server_url,
     }
+    mcp_config = {"mcpServers": mcp_servers}
     args.extend(["--mcp-config", json.dumps(mcp_config)])
 
     # Isolation: don't load filesystem settings

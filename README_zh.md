@@ -109,6 +109,7 @@ class AgentRunConfig:
     permission_mode: str = "bypassPermissions"                    # CLI 权限模式
     cwd: str | None = None                                        # 工作目录
     allowed_tools: list[str] | None = None                        # 限制可用工具
+    mcp_servers: dict[str, Any] = field(default_factory=dict)     # 额外的 MCP 服务器配置
     extra_args: dict[str, str | None] = field(default_factory=dict)  # 额外 CLI 参数
     timeout: float | None = None                                  # 超时时间（秒）
 ```
@@ -279,6 +280,28 @@ async def run_all():
     await asyncio.gather(*[_run(c) for c in configs])
     await sdk.shutdown()
 ```
+
+### 自定义 MCP 服务器
+
+通过 `mcp_servers` 向 Agent 子进程传入额外的 MCP 服务器配置。它们会与内置的 `agent-controller` 合并（`agent-controller` 不可被覆盖）。
+
+```python
+config = AgentRunConfig(
+    prompt="查询内部知识库并汇总结果",
+    mcp_servers={
+        "knowledge-base": {
+            "type": "http",
+            "url": "http://localhost:9090/mcp",
+        },
+        "search-engine": {
+            "command": "npx",
+            "args": ["-y", "@anthropic/search-mcp-server"],
+        },
+    },
+)
+```
+
+Agent 将同时拥有所有自定义 MCP 服务器的工具以及 SDK 内置 `agent-controller` 提供的 Complete/Block 工具。
 
 ## 工作原理
 
