@@ -197,31 +197,99 @@ async def advanced_run() -> None:
 # Example 6: Custom MCP servers
 # ---------------------------------------------------------------------------
 async def custom_mcp_run() -> None:
-    """Run an agent with additional third-party MCP servers.
+    """Run an agent with a self-hosted third-party MCP server.
 
-    The agent will have access to tools from the custom MCP servers
-    in addition to the SDK's built-in Complete/Block tools.
-
-    This example injects a filesystem MCP server so the agent can
-    use its tools. Replace with any MCP server you need.
+    This example starts a simple MCP HTTP server that provides an
+    `add_numbers` tool, then passes it to the agent via mcp_servers.
+    The agent is asked to use the tool and report the result.
+    We validate the result to confirm the tool was actually used.
     """
+    # --- 1. Start a custom MCP server with an `add_numbers` tool ----------
+    from aiohttp import web
+
+    CUSTOM_TOOLS = [
+        {
+            "name": "add_numbers",
+            "description": "Add two numbers and return the sum.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number", "description": "First number"},
+                    "b": {"type": "number", "description": "Second number"},
+                },
+                "required": ["a", "b"],
+            },
+        },
+    ]
+
+    async def custom_mcp_handler(request: web.Request) -> web.Response:
+        body = await request.json()
+        method = body.get("method", "")
+        params = body.get("params", {})
+        msg_id = body.get("id")
+
+        def result(r: dict) -> web.Response:
+            return web.json_response({"jsonrpc": "2.0", "result": r, "id": msg_id})
+
+        if msg_id is None:
+            return web.json_response({})
+
+        if method == "initialize":
+            return result({
+                "protocolVersion": "2025-03-26",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "custom-math", "version": "1.0.0"},
+            })
+        elif method == "tools/list":
+            return result({"tools": CUSTOM_TOOLS})
+        elif method == "tools/call":
+            name = params.get("name", "")
+            args = params.get("arguments", {})
+            if name == "add_numbers":
+                total = args.get("a", 0) + args.get("b", 0)
+                print(f"  [custom-mcp] add_numbers({args.get('a')}, {args.get('b')}) = {total}")
+                return result({"content": [{"type": "text", "text": str(total)}]})
+            return result({"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True})
+        else:
+            return web.json_response({
+                "jsonrpc": "2.0",
+                "error": {"code": -32601, "message": "Method not found"},
+                "id": msg_id,
+            })
+
+    custom_app = web.Application()
+    custom_app.router.add_post("/mcp", custom_mcp_handler)
+    custom_runner = web.AppRunner(custom_app)
+    await custom_runner.setup()
+    custom_site = web.TCPSite(custom_runner, "127.0.0.1", 0)
+    await custom_site.start()
+    custom_port = custom_site._server.sockets[0].getsockname()[1]
+    custom_url = f"http://127.0.0.1:{custom_port}/mcp"
+    print(f"  Custom MCP server started at {custom_url}\n")
+
+    # --- 2. Run agent with the custom MCP server -------------------------
     sdk = MCPAgentSDK()
     await sdk.init()
 
+    def validate_result(result: str) -> tuple[bool, str]:
+        # 42 + 58 = 100, agent must report this
+        if "100" in result:
+            return (True, "")
+        return (False, "The result must contain '100' (the sum of 42 and 58). Use the add_numbers tool.")
+
     config = AgentRunConfig(
-        prompt="Use the tools provided by the MCP servers to list files in the current directory, then summarize what you found.",
+        prompt=(
+            "Use the add_numbers tool from the custom-math MCP server "
+            "to calculate 42 + 58. Report the exact result."
+        ),
         mcp_servers={
-            # Example: stdio-based MCP server
-            "filesystem": {
-                "command": "npx",
-                "args": ["-y", "@anthropic/mcp-filesystem"],
+            "custom-math": {
+                "type": "http",
+                "url": custom_url,
             },
-            # Example: HTTP-based MCP server (uncomment if you have one running)
-            # "my-api": {
-            #     "type": "http",
-            #     "url": "http://localhost:8080/mcp",
-            # },
         },
+        validate_fn=validate_result,
+        max_retries=3,
         timeout=120.0,
     )
 
@@ -236,7 +304,10 @@ async def custom_mcp_run() -> None:
     except AgentProcessError as e:
         print(f"❌ Process crashed: {e}")
 
+    # --- 3. Cleanup -------------------------------------------------------
     await sdk.shutdown()
+    await custom_runner.cleanup()
+    print("  Custom MCP server stopped.")
 
 
 # ---------------------------------------------------------------------------
