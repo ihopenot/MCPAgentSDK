@@ -27,6 +27,7 @@ def build_cli_args(
     args = [
         "--input-format=stream-json",
         "--output-format=stream-json",
+        "--verbose",
     ]
 
     # Permission mode
@@ -97,7 +98,8 @@ async def start_cli_process(
         limit=_STREAM_BUFFER_LIMIT,
     )
 
-    # Send prompt via stdin in stream-json format
+    # Send prompt via stdin in stream-json format (keep stdin open so
+    # the CLI stays alive waiting for more input / MCP interactions).
     prompt_message = json.dumps({
         "type": "user",
         "message": {
@@ -108,7 +110,9 @@ async def start_cli_process(
     if process.stdin:
         process.stdin.write((prompt_message + "\n").encode())
         await process.stdin.drain()
-        process.stdin.close()
+        # NOTE: Do NOT close stdin here. Closing stdin signals EOF to the
+        # CLI, causing it to exit after the current turn — before the agent
+        # has a chance to call Complete/Block via MCP.
 
     return process
 

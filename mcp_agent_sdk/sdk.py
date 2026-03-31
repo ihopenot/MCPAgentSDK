@@ -259,9 +259,16 @@ class MCPAgentSDK:
             # pipe transports explicitly (prevents "unclosed transport"
             # ResourceWarning on Windows ProactorEventLoop).
             try:
+                # Close stdin first so the CLI sees EOF and can exit gracefully
+                if process.stdin and not process.stdin.is_closing():
+                    process.stdin.close()
                 if process.returncode is None:
-                    process.terminate()
-                await asyncio.wait_for(process.wait(), timeout=5)
+                    # Give the process a moment to exit after stdin EOF
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=2)
+                    except asyncio.TimeoutError:
+                        process.terminate()
+                        await asyncio.wait_for(process.wait(), timeout=5)
             except (asyncio.TimeoutError, ProcessLookupError):
                 process.kill()
                 try:
