@@ -28,6 +28,7 @@ def build_cli_args(
         "--input-format=stream-json",
         "--output-format=stream-json",
         "--verbose",
+        "--print",
     ]
 
     # Permission mode
