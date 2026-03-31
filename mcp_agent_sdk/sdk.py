@@ -255,8 +255,9 @@ class MCPAgentSDK:
             if not stderr_task.done():
                 stderr_task.cancel()
             self._registry.pop(agent_run_id, None)
-            # Ensure process is fully terminated and waited on (prevents
-            # "unclosed transport" warnings on Windows).
+            # Ensure process is fully terminated and waited on, then close
+            # pipe transports explicitly (prevents "unclosed transport"
+            # ResourceWarning on Windows ProactorEventLoop).
             try:
                 if process.returncode is None:
                     process.terminate()
@@ -267,3 +268,11 @@ class MCPAgentSDK:
                     await process.wait()
                 except ProcessLookupError:
                     pass
+            # Close pipe transports — on Windows these are
+            # _ProactorBasePipeTransport objects that must be closed
+            # explicitly to avoid ResourceWarning in __del__.
+            for pipe in (process.stdout, process.stderr, process.stdin):
+                if pipe is not None:
+                    transport = getattr(pipe, "_transport", None) or getattr(pipe, "transport", None)
+                    if transport is not None:
+                        transport.close()
