@@ -180,3 +180,45 @@ class TestAgentResult:
         )
         assert result.exit_code == 1
         assert result.stderr_output == "fatal error"
+
+
+class TestHookTypes:
+    """Hook-related type definitions."""
+
+    def test_hook_matcher_defaults(self):
+        from mcp_agent_sdk.types import HookMatcher
+        m = HookMatcher()
+        assert m.matcher is None
+        assert m.hooks == []
+        assert m.timeout is None
+
+    def test_hook_matcher_with_values(self):
+        from mcp_agent_sdk.types import HookMatcher
+
+        async def dummy_hook(hook_input, tool_use_id, context):
+            return {"continue_": True}
+
+        m = HookMatcher(matcher="Bash", hooks=[dummy_hook], timeout=30.0)
+        assert m.matcher == "Bash"
+        assert len(m.hooks) == 1
+        assert m.timeout == 30.0
+
+    def test_agent_run_config_hooks_default_none(self):
+        from mcp_agent_sdk.types import AgentRunConfig
+        config = AgentRunConfig(prompt="test")
+        assert config.hooks is None
+
+    def test_agent_run_config_hooks_with_value(self):
+        from mcp_agent_sdk.types import AgentRunConfig, HookMatcher
+
+        async def dummy_hook(hook_input, tool_use_id, context):
+            return {"continue_": True}
+
+        config = AgentRunConfig(
+            prompt="test",
+            hooks={
+                "PreToolUse": [HookMatcher(matcher="Bash", hooks=[dummy_hook])],
+            },
+        )
+        assert "PreToolUse" in config.hooks
+        assert len(config.hooks["PreToolUse"]) == 1

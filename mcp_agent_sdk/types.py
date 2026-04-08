@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +97,48 @@ class AgentResult(StreamEvent):
 
 
 # ---------------------------------------------------------------------------
+# Hook types â lifecycle hooks for controlling agent behavior
+# ---------------------------------------------------------------------------
+
+HookEvent = (
+    Literal["PreToolUse"]
+    | Literal["PostToolUse"]
+    | Literal["UserPromptSubmit"]
+    | Literal["Stop"]
+    | Literal["SubagentStop"]
+    | Literal["PreCompact"]
+)
+
+
+class HookContext(TypedDict):
+    """Context information for hook callbacks."""
+    signal: Any | None
+
+
+class HookJSONOutput(TypedDict, total=False):
+    """Hook callback return value. All fields are optional."""
+    continue_: bool
+    suppressOutput: bool
+    stopReason: str
+    decision: str
+    reason: str
+
+
+HookCallback = Callable[
+    [Any, str | None, HookContext],
+    Awaitable[HookJSONOutput],
+]
+
+
+@dataclass
+class HookMatcher:
+    """Hook matcher â matches tool names or events and routes to callbacks."""
+    matcher: str | None = None
+    hooks: list[HookCallback] = field(default_factory=list)
+    timeout: float | None = None
+
+
+# ---------------------------------------------------------------------------
 # Internal / config types (unchanged from original)
 # ---------------------------------------------------------------------------
 
@@ -117,6 +159,7 @@ class AgentRunConfig:
     cli_path: str = "codebuddy"
     extra_args: dict[str, str | None] = field(default_factory=dict)
     timeout: float | None = None
+    hooks: dict[HookEvent, list[HookMatcher]] | None = None
 
 
 @dataclass
