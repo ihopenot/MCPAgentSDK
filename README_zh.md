@@ -9,6 +9,7 @@
 - **Agent 执行** — 以托管子进程方式启动 `codebuddy` CLI Agent
 - **自动验证** — 通过自定义函数验证任务结果；验证失败时自动重试
 - **人机协作** — Agent 可调用 `Block` 工具标记需要人工介入的任务
+- **生命周期 Hook** — 通过 `PreToolUse`、`PostToolUse`、`Stop` 等 Hook 事件拦截和控制 Agent 行为
 - **结构化流式输出** — 通过 `AsyncIterator[StreamEvent]` 接收类型化事件（`AssistantMessage`、`SystemMessage`、`AgentResult`）
 - **错误诊断** — 进程崩溃时抛出具体异常，包含 stderr 捕获和退出码
 - **并发 Agent** — 同时运行多个 Agent，每个通过唯一 run ID 跟踪
@@ -113,6 +114,7 @@ class AgentRunConfig:
     cli_path: str = "codebuddy"                                   # CLI 可执行文件名或路径
     extra_args: dict[str, str | None] = field(default_factory=dict)  # 额外 CLI 参数
     timeout: float | None = None                                  # 超时时间（秒）
+    hooks: dict[HookEvent, list[HookMatcher]] | None = None       # 生命周期 Hook
 ```
 
 ### 流式事件类型
@@ -304,6 +306,73 @@ config = AgentRunConfig(
 
 Agent 将同时拥有所有自定义 MCP 服务器的工具以及 SDK 内置 `agent-controller` 提供的 Complete/Block 工具。
 
+### 生命周期 Hook
+
+使用 Hook 在关键生命周期节点拦截和控制 Agent 行为。Hook 是异步回调函数，可以允许、阻止或修改 Agent 的操作。
+
+**支持的事件：** `PreToolUse`、`PostToolUse`、`UserPromptSubmit`、`Stop`、`SubagentStop`、`PreCompact`
+
+```python
+from mcp_agent_sdk import HookMatcher
+
+async def block_dangerous_commands(hook_input, tool_use_id, context):
+    """在执行前阻止危险的 Bash 命令。"""
+    input_data = hook_input.get("input", {})
+    command = input_data.get("command", "")
+    if any(d in command for d in ["rm -rf", "mkfs", "dd if="]):
+        return {
+            "continue_": False,
+            "decision": "block",
+            "reason": f"已阻止危险命令：{command}",
+        }
+    return {"continue_": True}
+
+config = AgentRunConfig(
+    prompt="清理当前目录中的临时文件",
+    hooks={
+        "PreToolUse": [
+            HookMatcher(
+                matcher="Bash",           # 仅拦截 Bash 工具调用
+                hooks=[block_dangerous_commands],
+            )
+        ],
+    },
+)
+```
+
+#### Hook 回调签名
+
+```python
+async def my_hook(
+    hook_input: Any,            # 来自 CLI 的输入数据（工具名称、参数等）
+    tool_use_id: str | None,    # 工具使用 ID（如适用）
+    context: HookContext,       # {"signal": None}
+) -> HookJSONOutput:
+    return {"continue_": True}  # 允许该操作
+```
+
+#### Hook 返回值
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `continue_` | `bool` | 是否继续执行（`True`）或阻止（`False`） |
+| `suppressOutput` | `bool` | 是否抑制工具输出 |
+| `stopReason` | `str` | 停止原因（当 `continue_=False` 时） |
+| `decision` | `str` | 决策类型，如 `"block"` |
+| `reason` | `str` | 决策的可读描述 |
+
+所有字段均为可选。使用 `continue_`（带尾部下划线）以避免 Python 关键字冲突 — SDK 会在协议中自动映射为 `continue`。
+
+#### `HookMatcher`
+
+```python
+@dataclass
+class HookMatcher:
+    matcher: str | None = None    # 工具名称匹配模式（None = 匹配所有）
+    hooks: list[HookCallback]     # 异步 Hook 回调列表
+    timeout: float | None = None  # Hook 执行超时时间（秒）
+```
+
 ## 工作原理
 
 ```
@@ -313,12 +382,14 @@ Agent 将同时拥有所有自定义 MCP 服务器的工具以及 SDK 内置 `ag
                 ├─ 以唯一 agent_run_id 注册 RunContext
                 ├─ 注入包含 Complete/Block 工具说明的系统提示词
                 ├─ 携带 MCP 配置启动 codebuddy 子进程
+                ├─ 通过 stdin 控制协议发送 Hook 配置（如已配置）
                 ├─ 启动异步 stderr 读取器（deque 缓冲，保留最后 100 行）
                 │
                 │   ┌─────────────────────────────────────┐
                 │   │  codebuddy agent 执行任务             │
                 │   │  ├─ 调用 Complete(result) ───────────┼──► validate_fn() ──► 重试或完成
                 │   │  ├─ 调用 Block(reason)   ───────────┼──► on_block 回调
+                │   │  ├─ 触发 Hook 事件       ───────────┼──► Hook 回调 ──► 允许/阻止
                 │   │  └─ 未调用任一工具就崩溃  ───────────┼──► 抛出 AgentProcessError(stderr)
                 │   └─────────────────────────────────────┘
                 │

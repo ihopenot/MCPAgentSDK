@@ -9,6 +9,7 @@ Python SDK for programmatically executing AI agent tasks with **automatic valida
 - **Agent Execution** — Launch `codebuddy` CLI agents as managed subprocesses
 - **Auto-Validation** — Validate task results with custom functions; failed validations trigger automatic retries
 - **Human-in-the-Loop** — Agents can call `Block` to signal tasks that need human intervention
+- **Lifecycle Hooks** — Intercept and control agent behavior with `PreToolUse`, `PostToolUse`, `Stop` and other hook events
 - **Structured Streaming** — Receive typed events (`AssistantMessage`, `SystemMessage`, `AgentResult`) via `AsyncIterator[StreamEvent]`
 - **Error Diagnostics** — Process crashes raise specific exceptions with stderr capture and exit codes
 - **Concurrent Agents** — Run multiple agents simultaneously, each tracked by a unique run ID
@@ -113,6 +114,7 @@ class AgentRunConfig:
     cli_path: str = "codebuddy"                                   # CLI executable name or path
     extra_args: dict[str, str | None] = field(default_factory=dict)  # Extra CLI flags
     timeout: float | None = None                                  # Timeout in seconds
+    hooks: dict[HookEvent, list[HookMatcher]] | None = None       # Lifecycle hooks
 ```
 
 ### Stream Event Types
@@ -304,6 +306,73 @@ config = AgentRunConfig(
 
 The agent will have access to tools from all configured MCP servers plus the SDK's internal `agent-controller` (Complete/Block tools).
 
+### Lifecycle Hooks
+
+Use hooks to intercept and control agent behavior at key lifecycle points. Hooks are async callbacks that can allow, block, or modify agent actions.
+
+**Supported events:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `PreCompact`
+
+```python
+from mcp_agent_sdk import HookMatcher
+
+async def block_dangerous_commands(hook_input, tool_use_id, context):
+    """Block dangerous Bash commands before they execute."""
+    input_data = hook_input.get("input", {})
+    command = input_data.get("command", "")
+    if any(d in command for d in ["rm -rf", "mkfs", "dd if="]):
+        return {
+            "continue_": False,
+            "decision": "block",
+            "reason": f"Blocked dangerous command: {command}",
+        }
+    return {"continue_": True}
+
+config = AgentRunConfig(
+    prompt="Clean up temp files in the current directory",
+    hooks={
+        "PreToolUse": [
+            HookMatcher(
+                matcher="Bash",           # Only intercept Bash tool calls
+                hooks=[block_dangerous_commands],
+            )
+        ],
+    },
+)
+```
+
+#### Hook Callback Signature
+
+```python
+async def my_hook(
+    hook_input: Any,            # Input data from CLI (tool name, args, etc.)
+    tool_use_id: str | None,    # Tool use ID if applicable
+    context: HookContext,       # {"signal": None}
+) -> HookJSONOutput:
+    return {"continue_": True}  # Allow the action
+```
+
+#### Hook Return Values
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `continue_` | `bool` | Whether to continue execution (`True`) or block it (`False`) |
+| `suppressOutput` | `bool` | Whether to suppress the tool's output |
+| `stopReason` | `str` | Reason for stopping (when `continue_=False`) |
+| `decision` | `str` | Decision type, e.g. `"block"` |
+| `reason` | `str` | Human-readable reason for the decision |
+
+All fields are optional. Use `continue_` (with trailing underscore) to avoid Python keyword conflict — the SDK maps it to `continue` in the protocol.
+
+#### `HookMatcher`
+
+```python
+@dataclass
+class HookMatcher:
+    matcher: str | None = None    # Tool name pattern to match (None = match all)
+    hooks: list[HookCallback]     # List of async hook callbacks
+    timeout: float | None = None  # Timeout for hook execution (seconds)
+```
+
 ## How It Works
 
 ```
@@ -313,12 +382,14 @@ Your Code ──► MCPAgentSDK.run_agent(config)
                 ├─ Register RunContext with unique agent_run_id
                 ├─ Inject system prompt with Complete/Block tool instructions
                 ├─ Launch codebuddy subprocess with MCP config
+                ├─ Send hooks config via stdin control protocol (if configured)
                 ├─ Start async stderr reader (deque buffer, last 100 lines)
                 │
                 │   ┌─────────────────────────────────────┐
                 │   │  codebuddy agent runs task           │
                 │   │  ├─ calls Complete(result) ──────────┼──► validate_fn() ──► retry or complete
                 │   │  ├─ calls Block(reason)   ──────────┼──► on_block callback
+                │   │  ├─ triggers hook event   ──────────┼──► hook callback ──► allow/block
                 │   │  └─ crashes without calling either ──┼──► raise AgentProcessError(stderr)
                 │   └─────────────────────────────────────┘
                 │
