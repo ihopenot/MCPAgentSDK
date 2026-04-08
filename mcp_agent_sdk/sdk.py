@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 from aiohttp import web
+
+from mcp_agent_sdk.hooks import (
+    build_control_response,
+    build_hooks_config,
+    build_initialize_request,
+    execute_hook,
+)
 
 from mcp_agent_sdk.errors import AgentProcessError, AgentStartupError
 from mcp_agent_sdk.mcp_server import _safe_call, create_mcp_app
@@ -86,6 +95,13 @@ class MCPAgentSDK:
         self._site = None
         self._port = 0
 
+    @staticmethod
+    async def _write_to_stdin(process: asyncio.subprocess.Process, data: dict) -> None:
+        """Write a JSON message to the subprocess stdin."""
+        if process.stdin and not process.stdin.is_closing():
+            process.stdin.write((json.dumps(data) + "\n").encode())
+            await process.stdin.drain()
+
     async def run_agent(self, config: AgentRunConfig) -> AsyncIterator[StreamEvent]:
         """Run an agent and yield structured events as they arrive.
 
@@ -133,6 +149,16 @@ class MCPAgentSDK:
             full_prompt=full_prompt,
             cwd=config.cwd,
         )
+
+        # Initialize hooks via control protocol if configured
+        hook_callbacks: dict[str, Any] = {}
+        if config.hooks:
+            hooks_config, hook_callbacks = build_hooks_config(config.hooks)
+            if hooks_config is not None:
+                init_request = build_initialize_request(
+                    hooks_config, f"init_{agent_run_id}"
+                )
+                await self._write_to_stdin(process, init_request)
 
         # Schedule timeout if configured
         timeout_task: asyncio.Task | None = None
@@ -197,6 +223,32 @@ class MCPAgentSDK:
                 stdout_tail.append(line.rstrip())
                 if len(stdout_tail) > 20:
                     stdout_tail.pop(0)
+
+                # Check for control_request before parsing as stream event
+                try:
+                    raw_data = json.loads(line)
+                except (json.JSONDecodeError, ValueError):
+                    raw_data = None
+
+                if isinstance(raw_data, dict) and raw_data.get("type") == "control_request":
+                    # Handle hook callback control request
+                    request_id = raw_data.get("request_id", "")
+                    request = raw_data.get("request", {})
+                    subtype = request.get("subtype", "")
+
+                    if subtype == "hook_callback":
+                        callback_id = request.get("callback_id", "")
+                        hook_input = request.get("input", {})
+                        tool_use_id = request.get("tool_use_id")
+
+                        response = await execute_hook(
+                            callback_id, hook_input, tool_use_id, hook_callbacks
+                        )
+                        control_resp = build_control_response(request_id, response)
+                        await self._write_to_stdin(process, control_resp)
+
+                    # Don't yield control messages as stream events
+                    continue
 
                 event = parse_line(line)
                 if event is None:
