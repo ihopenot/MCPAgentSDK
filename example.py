@@ -14,6 +14,7 @@ from mcp_agent_sdk import (
     AgentStartupError,
     AssistantMessage,
     ContentBlock,
+    HookMatcher,
     MCPAgentSDK,
     SystemMessage,
     TextBlock,
@@ -344,6 +345,59 @@ async def claude_run() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Example 8: Hooks — control agent behavior with lifecycle hooks
+# ---------------------------------------------------------------------------
+async def hook_run() -> None:
+    """Use a PreToolUse hook to block dangerous shell commands.
+
+    The hook intercepts Bash tool calls and blocks commands containing
+    'rm -rf', 'mkfs', or 'dd if='. Safe commands pass through normally.
+    """
+    sdk = MCPAgentSDK()
+    await sdk.init()
+
+    async def block_dangerous_commands(hook_input, tool_use_id, context):
+        """Block dangerous Bash commands before they execute."""
+        input_data = hook_input.get("input", {})
+        command = input_data.get("command", "")
+        dangerous = ["rm -rf", "mkfs", "dd if="]
+        if any(d in command for d in dangerous):
+            print(f"  🛡️  Hook blocked: {command}")
+            return {
+                "continue_": False,
+                "decision": "block",
+                "reason": f"Blocked dangerous command: {command}",
+            }
+        return {"continue_": True}
+
+    config = AgentRunConfig(
+        prompt="List files in the current directory and show disk usage",
+        hooks={
+            "PreToolUse": [
+                HookMatcher(
+                    matcher="Bash",
+                    hooks=[block_dangerous_commands],
+                )
+            ],
+        },
+        permission_mode="bypassPermissions",
+    )
+
+    try:
+        async for event in sdk.run_agent(config):
+            if isinstance(event, AgentResult):
+                print(f"\n✅ Done — status: {event.status}, message: {event.message}")
+            else:
+                print_event(event)
+    except AgentStartupError as e:
+        print(f"❌ Startup failed: {e}")
+    except AgentProcessError as e:
+        print(f"❌ Process crashed: {e}")
+
+    await sdk.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # Main — pick which example to run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -357,6 +411,7 @@ if __name__ == "__main__":
         "advanced": advanced_run,
         "custom_mcp": custom_mcp_run,
         "claude": claude_run,
+        "hooks": hook_run,
     }
 
     name = sys.argv[1] if len(sys.argv) > 1 else "basic"
