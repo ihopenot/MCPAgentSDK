@@ -12,6 +12,11 @@ from mcp_agent_sdk.types import (
     AgentRunConfig,
     AssistantMessage,
     ContentBlock,
+    HookCallback,
+    HookContext,
+    HookEvent,
+    HookJSONOutput,
+    HookMatcher,
     ResultMessage,
     RunContext,
     StreamEvent,
@@ -43,6 +48,12 @@ __all__ = [
     "ThinkingBlock",
     "ToolResultBlock",
     "ToolUseBlock",
+    # Hook types
+    "HookCallback",
+    "HookContext",
+    "HookEvent",
+    "HookJSONOutput",
+    "HookMatcher",
 ]
 
 
