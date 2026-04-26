@@ -22,6 +22,13 @@ def test_build_cli_args_minimal():
     assert "--permission-mode" in args
     assert "bypassPermissions" in args
 
+    # MCP tools should always be included even without allowed_tools
+    assert "--allowedTools" in args
+    tools_idx = args.index("--allowedTools")
+    tool_list = [a for a in args[tools_idx + 1:] if not a.startswith("--")]
+    assert "mcp__agent-controller__Complete" in tool_list
+    assert "mcp__agent-controller__Block" in tool_list
+
     # Check mcp-config is a JSON string containing the server URL
     mcp_idx = args.index("--mcp-config")
     mcp_json = json.loads(args[mcp_idx + 1])
@@ -39,14 +46,32 @@ def test_build_cli_args_with_model():
 
 
 def test_build_cli_args_with_allowed_tools():
-    """allowed_tools should be passed via --allowedTools."""
+    """allowed_tools should be passed via --allowedTools with MCP tools auto-included."""
     config = AgentRunConfig(prompt="test", allowed_tools=["Read", "Write", "Bash"])
     args = build_cli_args(config=config, full_prompt="p", mcp_server_url="http://localhost/mcp")
     assert "--allowedTools" in args
     tools_idx = args.index("--allowedTools")
-    assert args[tools_idx + 1] == "Read"
-    assert args[tools_idx + 2] == "Write"
-    assert args[tools_idx + 3] == "Bash"
+    tool_list = args[tools_idx + 1:]
+    # Find where the next flag starts (if any)
+    tool_list = [a for a in tool_list if not a.startswith("--")]
+    assert "Read" in tool_list
+    assert "Write" in tool_list
+    assert "Bash" in tool_list
+    assert "mcp__agent-controller__Complete" in tool_list
+    assert "mcp__agent-controller__Block" in tool_list
+
+
+def test_build_cli_args_allowed_tools_no_duplicate_mcp():
+    """MCP tools should not be duplicated if already in allowed_tools."""
+    config = AgentRunConfig(
+        prompt="test",
+        allowed_tools=["Read", "mcp__agent-controller__Complete"],
+    )
+    args = build_cli_args(config=config, full_prompt="p", mcp_server_url="http://localhost/mcp")
+    tools_idx = args.index("--allowedTools")
+    tool_list = [a for a in args[tools_idx + 1:] if not a.startswith("--")]
+    assert tool_list.count("mcp__agent-controller__Complete") == 1
+    assert "mcp__agent-controller__Block" in tool_list
 
 
 def test_build_cli_args_with_extra_args():

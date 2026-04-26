@@ -38,9 +38,17 @@ def build_cli_args(
     if config.model:
         args.extend(["--model", config.model])
 
-    # Allowed tools
+    # Allowed tools – always include the built-in agent-controller MCP tools
+    # so that the agent can still call Complete/Block to finish a run.
+    _mcp_tools = ["mcp__agent-controller__Complete", "mcp__agent-controller__Block"]
     if config.allowed_tools:
-        args.extend(["--allowedTools"] + list(config.allowed_tools))
+        merged = list(config.allowed_tools)
+        for t in _mcp_tools:
+            if t not in merged:
+                merged.append(t)
+        args.extend(["--allowedTools"] + merged)
+    else:
+        args.extend(["--allowedTools"] + _mcp_tools)
 
     # MCP config - inject our server, merge with user-provided servers
     mcp_servers = dict(config.mcp_servers)  # shallow copy
