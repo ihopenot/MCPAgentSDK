@@ -11,12 +11,17 @@ from mcp_agent_sdk.types import (
     AgentResult,
     AgentRunConfig,
     AssistantMessage,
+    CanUseTool,
+    CanUseToolOptions,
     ContentBlock,
     HookCallback,
     HookContext,
     HookEvent,
     HookJSONOutput,
     HookMatcher,
+    PermissionResult,
+    PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
     RunContext,
     StreamEvent,
@@ -25,6 +30,7 @@ from mcp_agent_sdk.types import (
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
+    default_deny_can_use_tool,
 )
 
 __all__ = [
@@ -54,6 +60,13 @@ __all__ = [
     "HookEvent",
     "HookJSONOutput",
     "HookMatcher",
+    # can_use_tool types
+    "CanUseTool",
+    "CanUseToolOptions",
+    "PermissionResult",
+    "PermissionResultAllow",
+    "PermissionResultDeny",
+    "default_deny_can_use_tool",
 ]
 
 

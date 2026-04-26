@@ -139,6 +139,54 @@ class HookMatcher:
 
 
 # ---------------------------------------------------------------------------
+# can_use_tool — permission callback types
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CanUseToolOptions:
+    """Options passed to can_use_tool callback."""
+
+    tool_use_id: str
+    agent_id: str | None = None
+
+
+@dataclass
+class PermissionResultAllow:
+    """Allow permission result."""
+
+    behavior: Literal["allow"] = "allow"
+    updated_input: dict[str, Any] | None = None
+
+
+@dataclass
+class PermissionResultDeny:
+    """Deny permission result."""
+
+    message: str = ""
+    behavior: Literal["deny"] = "deny"
+    interrupt: bool = False
+
+
+PermissionResult = PermissionResultAllow | PermissionResultDeny
+
+CanUseTool = Callable[
+    [str, dict[str, Any], CanUseToolOptions],
+    Awaitable[PermissionResult],
+]
+
+
+async def default_deny_can_use_tool(
+    tool_name: str,
+    input_data: dict[str, Any],
+    options: CanUseToolOptions,
+) -> PermissionResult:
+    """Default permission handler that denies all tool calls."""
+    return PermissionResultDeny(
+        message=f"Tool '{tool_name}' is not allowed: no permission handler provided"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Internal / config types (unchanged from original)
 # ---------------------------------------------------------------------------
 
@@ -160,6 +208,7 @@ class AgentRunConfig:
     extra_args: dict[str, str | None] = field(default_factory=dict)
     timeout: float | None = None
     hooks: dict[HookEvent, list[HookMatcher]] | None = None
+    can_use_tool: CanUseTool | None = None
 
 
 @dataclass

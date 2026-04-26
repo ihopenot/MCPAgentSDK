@@ -30,10 +30,13 @@ from mcp_agent_sdk.prompt_template import build_prompt
 from mcp_agent_sdk.types import (
     AgentResult,
     AgentRunConfig,
+    CanUseToolOptions,
+    PermissionResult,
     ResultMessage,
     RunContext,
     StreamEvent,
     SystemMessage,
+    default_deny_can_use_tool,
 )
 
 
@@ -245,6 +248,48 @@ class MCPAgentSDK:
                             callback_id, hook_input, tool_use_id, hook_callbacks
                         )
                         control_resp = build_control_response(request_id, response)
+                        await self._write_to_stdin(process, control_resp)
+
+                    elif subtype == "can_use_tool":
+                        tool_name = request.get("tool_name", "")
+                        input_data = request.get("input", {})
+                        tool_use_id = request.get("tool_use_id", "")
+                        req_agent_id = request.get("agent_id")
+
+                        handler = config.can_use_tool or default_deny_can_use_tool
+                        options = CanUseToolOptions(
+                            tool_use_id=tool_use_id,
+                            agent_id=req_agent_id,
+                        )
+
+                        try:
+                            result: PermissionResult = await handler(
+                                tool_name, input_data, options
+                            )
+                            if result.behavior == "allow":
+                                response_data = {
+                                    "allowed": True,
+                                    "updatedInput": result.updated_input,
+                                    "tool_use_id": tool_use_id,
+                                }
+                            else:
+                                response_data = {
+                                    "allowed": False,
+                                    "reason": result.message,
+                                    "interrupt": result.interrupt,
+                                    "tool_use_id": tool_use_id,
+                                }
+                        except Exception as exc:
+                            response_data = {
+                                "allowed": False,
+                                "reason": str(exc),
+                                "interrupt": False,
+                                "tool_use_id": tool_use_id,
+                            }
+
+                        control_resp = build_control_response(
+                            request_id, response_data
+                        )
                         await self._write_to_stdin(process, control_resp)
 
                     # Don't yield control messages as stream events
