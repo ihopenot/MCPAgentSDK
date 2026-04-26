@@ -13,9 +13,12 @@ from mcp_agent_sdk import (
     AgentRunConfig,
     AgentStartupError,
     AssistantMessage,
+    CanUseToolOptions,
     ContentBlock,
     HookMatcher,
     MCPAgentSDK,
+    PermissionResultAllow,
+    PermissionResultDeny,
     SystemMessage,
     TextBlock,
     ThinkingBlock,
@@ -81,14 +84,16 @@ async def validated_run() -> None:
 
     def validate_result(result: str) -> tuple[bool, str]:
         """Return (True, '') on success, or (False, feedback) on failure."""
+        print(f"Validate: {result}")
         if "hello" in result.lower():
             return (True, "")
         return (False, "Result must mention 'hello'. Please try again.")
 
     config = AgentRunConfig(
-        prompt="Create a Python script that prints 'Hello from MCP Agent!'",
+        prompt="这是一个测试，测试会检测你的输出包含hello才会通过。你需要返回一个不包含hello的字符串，来测试校验逻辑是否正确。等到系统返回错误信息时，在输出满足条件的字符串。", 
         validate_fn=validate_result,
         max_retries=3,
+        permission_mode="plan"
     )
 
     try:
@@ -358,9 +363,9 @@ async def hook_run() -> None:
 
     async def block_dangerous_commands(hook_input, tool_use_id, context):
         """Block dangerous Bash commands before they execute."""
-        input_data = hook_input.get("input", {})
-        command = input_data.get("command", "")
-        dangerous = ["rm -rf", "mkfs", "dd if="]
+        tool_input = hook_input.get("tool_input", {})
+        command = tool_input.get("command", "")
+        dangerous = ["rm -rf", "mkfs", "dd if=", "ls"]
         if any(d in command for d in dangerous):
             print(f"  🛡️  Hook blocked: {command}")
             return {
@@ -368,6 +373,7 @@ async def hook_run() -> None:
                 "decision": "block",
                 "reason": f"Blocked dangerous command: {command}",
             }
+        print(f"  ✅ Hook allowed: {command}")
         return {"continue_": True}
 
     config = AgentRunConfig(
@@ -381,6 +387,59 @@ async def hook_run() -> None:
             ],
         },
         permission_mode="bypassPermissions",
+    )
+
+    try:
+        async for event in sdk.run_agent(config):
+            if isinstance(event, AgentResult):
+                print(f"\n✅ Done — status: {event.status}, message: {event.message}")
+            else:
+                print_event(event)
+    except AgentStartupError as e:
+        print(f"❌ Startup failed: {e}")
+    except AgentProcessError as e:
+        print(f"❌ Process crashed: {e}")
+
+    await sdk.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Example 9: can_use_tool — runtime tool permission control
+# ---------------------------------------------------------------------------
+async def can_use_tool_run() -> None:
+    """Use can_use_tool callback to control which tools the agent may use.
+
+    This example allows Read and Glob tools but blocks Bash and Write.
+    The callback receives the tool name, input parameters, and context,
+    and returns Allow or Deny.
+
+    Note: can_use_tool only takes effect when permission_mode is NOT
+    "bypassPermissions". In bypass mode the CLI never sends permission
+    requests, so the callback is never invoked.
+    """
+    sdk = MCPAgentSDK()
+    await sdk.init()
+
+    ALLOWED = {"Read", "Glob", "Grep"}
+
+    async def my_permission_handler(
+        tool_name: str,
+        input_data: dict,
+        options: CanUseToolOptions,
+    ):
+        """Allow read-only tools, deny everything else."""
+        if tool_name in ALLOWED:
+            print(f"  ✅ Allowed: {tool_name}")
+            return PermissionResultAllow()
+        print(f"  🚫 Denied: {tool_name}")
+        return PermissionResultDeny(
+            message=f"Tool '{tool_name}' is not in the allow-list",
+        )
+
+    config = AgentRunConfig(
+        prompt="List all Python files in the current directory and read pyproject.toml",
+        can_use_tool=my_permission_handler,
+        permission_mode="default",  # Required — bypass mode skips permission checks
     )
 
     try:
@@ -412,6 +471,7 @@ if __name__ == "__main__":
         "custom_mcp": custom_mcp_run,
         "claude": claude_run,
         "hooks": hook_run,
+        "can_use_tool": can_use_tool_run,
     }
 
     name = sys.argv[1] if len(sys.argv) > 1 else "basic"

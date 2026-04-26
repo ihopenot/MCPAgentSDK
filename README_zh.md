@@ -390,6 +390,7 @@ class HookMatcher:
                 │   │  ├─ 调用 Complete(result) ───────────┼──► validate_fn() ──► 重试或完成
                 │   │  ├─ 调用 Block(reason)   ───────────┼──► on_block 回调
                 │   │  ├─ 触发 Hook 事件       ───────────┼──► Hook 回调 ──► 允许/阻止
+                │   │  ├─ 请求工具权限       ───────────┼──► can_use_tool() ──► 允许/拒绝
                 │   │  └─ 未调用任一工具就崩溃  ───────────┼──► 抛出 AgentProcessError(stderr)
                 │   └─────────────────────────────────────┘
                 │

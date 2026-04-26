@@ -10,6 +10,7 @@ Python SDK for programmatically executing AI agent tasks with **automatic valida
 - **Auto-Validation** — Validate task results with custom functions; failed validations trigger automatic retries
 - **Human-in-the-Loop** — Agents can call `Block` to signal tasks that need human intervention
 - **Lifecycle Hooks** — Intercept and control agent behavior with `PreToolUse`, `PostToolUse`, `Stop` and other hook events
+- **Tool Permission Control** — Approve or deny tool calls at runtime via `can_use_tool` callback with optional input modification
 - **Structured Streaming** — Receive typed events (`AssistantMessage`, `SystemMessage`, `AgentResult`) via `AsyncIterator[StreamEvent]`
 - **Error Diagnostics** — Process crashes raise specific exceptions with stderr capture and exit codes
 - **Concurrent Agents** — Run multiple agents simultaneously, each tracked by a unique run ID
@@ -115,6 +116,7 @@ class AgentRunConfig:
     extra_args: dict[str, str | None] = field(default_factory=dict)  # Extra CLI flags
     timeout: float | None = None                                  # Timeout in seconds
     hooks: dict[HookEvent, list[HookMatcher]] | None = None       # Lifecycle hooks
+    can_use_tool: CanUseTool | None = None                         # Tool permission callback
 ```
 
 ### Stream Event Types
@@ -373,6 +375,51 @@ class HookMatcher:
     timeout: float | None = None  # Timeout for hook execution (seconds)
 ```
 
+### Tool Permission Control
+
+Use `can_use_tool` to programmatically approve or deny tool calls at runtime. This callback is invoked when the CLI sends a permission request (requires `permission_mode` to be something other than `"bypassPermissions"`).
+
+```python
+from mcp_agent_sdk import (
+    CanUseToolOptions, PermissionResultAllow, PermissionResultDeny,
+)
+
+ALLOWED_TOOLS = {"Read", "Glob", "Grep"}
+
+async def my_permission_handler(
+    tool_name: str,
+    input_data: dict,
+    options: CanUseToolOptions,
+) -> PermissionResultAllow | PermissionResultDeny:
+    if tool_name in ALLOWED_TOOLS:
+        return PermissionResultAllow()
+    return PermissionResultDeny(
+        message=f"Tool '{tool_name}' is not in the allow-list",
+    )
+
+config = AgentRunConfig(
+    prompt="Read and summarize pyproject.toml",
+    can_use_tool=my_permission_handler,
+    permission_mode="default",  # Required — bypass mode skips permission checks
+)
+```
+
+**Key points:**
+
+- `can_use_tool=None` (default) uses `default_deny_can_use_tool`, which denies all tool calls — preventing the agent from hanging on unanswered permission requests.
+- `PermissionResultAllow(updated_input={...})` can modify the tool's input parameters before execution.
+- `PermissionResultDeny(message="...", interrupt=True)` can halt execution entirely.
+- Hooks (`PreToolUse`) run first; if a hook blocks a tool, `can_use_tool` is never called.
+- Callback exceptions are caught and converted to deny responses automatically.
+
+#### Permission Types
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `CanUseToolOptions` | `tool_use_id`, `agent_id` | Context passed to the callback |
+| `PermissionResultAllow` | `behavior="allow"`, `updated_input` | Allow the tool call, optionally modify input |
+| `PermissionResultDeny` | `behavior="deny"`, `message`, `interrupt` | Deny the tool call with a reason |
+
 ## How It Works
 
 ```
@@ -390,6 +437,7 @@ Your Code ──► MCPAgentSDK.run_agent(config)
                 │   │  ├─ calls Complete(result) ──────────┼──► validate_fn() ──► retry or complete
                 │   │  ├─ calls Block(reason)   ──────────┼──► on_block callback
                 │   │  ├─ triggers hook event   ──────────┼──► hook callback ──► allow/block
+                │   │  ├─ requests tool permission ────────┼──► can_use_tool() ──► allow/deny
                 │   │  └─ crashes without calling either ──┼──► raise AgentProcessError(stderr)
                 │   └─────────────────────────────────────┘
                 │
